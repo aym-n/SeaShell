@@ -1,4 +1,3 @@
-#include <complex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +43,7 @@ int help(char **args)
 
 int exitShell(char **args) { return 0; }
 
-#define LINE_BUF_SIZE 1024;
+#define LINE_BUF_SIZE 1024
 char *readLine(void)
 {
   int bufsize = LINE_BUF_SIZE;
@@ -148,6 +147,72 @@ int launch(char **args)
   return 1;
 }
 
+int executePipes(char **args, int num_pipes)
+{
+  int num_commands = num_pipes + 1;
+  char ***commands = malloc(num_commands * sizeof(char **));
+
+  int cmd_index = 0;
+  int arg_index = 0;
+  commands[cmd_index] = &args[arg_index];
+
+  for (int i = 0; args[i] != NULL; i++)
+  {
+    if (strcmp(args[i], "|") == 0)
+    {
+      args[i] = NULL;
+      cmd_index++;
+      commands[cmd_index] = &args[i + 1];
+    }
+  }
+
+  // Generate pipes
+  int pipefd[2 * num_pipes];
+  for (int i = 0; i < num_pipes; i++)
+  {
+    if (pipe(pipefd + 2 * i) == -1)
+    {
+      perror("seaSH");
+      return 1;
+    }
+  }
+
+  for (int i = 0; i < num_commands; i++)
+  {
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+      // Child process
+      if (i > 0)
+        dup2(pipefd[2 * (i - 1)], STDIN_FILENO);
+
+      if (i < num_pipes)
+        dup2(pipefd[2 * i + 1], STDOUT_FILENO);
+
+      for (int j = 0; j < 2 * num_pipes; j++) close(pipefd[j]);
+
+      if (execvp(commands[i][0], commands[i]) == -1)
+      {
+        perror("seaSH");
+        exit(EXIT_FAILURE);
+      }
+    }
+    else if (pid < 0)
+    {
+      perror("seaSH");
+      return 1;
+    }
+  }
+
+  // Parent process
+  for (int i = 0; i < 2 * num_pipes; i++) close(pipefd[i]);
+  for (int i = 0; i < num_commands; i++) wait(NULL);
+
+  free(commands);
+
+  return 1;
+}
+
 int execute(char **args)
 {
   if (args[0] == NULL)
@@ -157,8 +222,16 @@ int execute(char **args)
     if (strcmp(args[0], builtin[i]) == 0)
       return (*builtin_func[i])(args);
 
-  return launch(args);
+  int num_pipes = 0;
+  for (int i = 0; args[i] != NULL; i++)
+    if (strcmp(args[i], "|") == 0)
+      num_pipes++;
+
+  if (num_pipes == 0)
+    return launch(args);
+  return executePipes(args, num_pipes);
 }
+
 void loop()
 {
   char *line;
@@ -167,7 +240,7 @@ void loop()
 
   do
   {
-    printf("> ");
+    printf("seaSH ~> ");
     line = readLine();
     args = splitLine(line);
     status = execute(args);
@@ -177,6 +250,7 @@ void loop()
 
   } while (status);
 }
+
 int main(int argc, char *argv[])
 {
   loop();
