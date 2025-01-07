@@ -11,9 +11,12 @@ int help(char **args);
 int exitShell(char **args);
 char **globTokens(char **tokens);
 
-char *builtin[] = {"cd", "help", "exit"};
+int pwd(char **args);
+int env(char **args);
 
-int (*builtin_func[])(char **) = {&cd, &help, &exitShell};
+char *builtin[] = {"cd", "help", "exit", "pwd", "env"};
+
+int (*builtin_func[])(char **) = {&cd, &help, &exitShell, &pwd, &env};
 int num_builtin() { return sizeof(builtin) / sizeof(char *); }
 
 int cd(char **args)
@@ -43,6 +46,25 @@ int help(char **args)
 }
 
 int exitShell(char **args) { return 0; }
+
+int pwd(char **args)
+{
+  char cwd[1024];
+  if (getcwd(cwd, sizeof(cwd)) != NULL)
+    printf("%s\n", cwd);
+  else
+    perror("seaSH");
+
+  return 1;
+}
+
+int env(char **args)
+{
+  extern char **environ;
+  for (char **env = environ; *env != NULL; env++) printf("%s\n", *env);
+
+  return 1;
+}
 
 #define LINE_BUF_SIZE 1024
 char *readLine(void)
