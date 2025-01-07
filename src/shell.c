@@ -84,41 +84,88 @@ char *readLine(void)
 
 #define TOK_BUFSIZE 64
 #define TOK_DELIM " \t\r\n\a"
+#define LINE_BUF_SIZE 1024
+
 char **splitLine(char *line)
 {
   int bufsize = TOK_BUFSIZE;
   int position = 0;
-  char **tokens = malloc(sizeof(char *) * bufsize);
-  char *token;
+  char **tokens = malloc(bufsize * sizeof(char *));
+  char *buffer = malloc(LINE_BUF_SIZE * sizeof(char));
+  int buffer_index = 0;
+  int in_quote = 0;  // 0 -> not in quote, 1 -> inside double quote, 2 -> inside single quote
+  int escaped = 0;
 
-  if (!tokens)
+  if (!tokens || !buffer)
   {
-    fprintf(stderr, "ERROR: Token Buffer memory allocation failed");
+    fprintf(stderr, "ERROR: Memory allocation failed\n");
     exit(EXIT_FAILURE);
   }
 
-  token = strtok(line, TOK_DELIM);
-  while (token != NULL)
+  for (int i = 0; line[i]; i++)
   {
-    tokens[position] = token;
-    position++;
-
-    if (position >= bufsize)
+    char current_char = line[i];
+    if (escaped)
     {
-      bufsize += TOK_BUFSIZE;
-      tokens = realloc(tokens, bufsize);
-      if (!tokens)
+      buffer[buffer_index++] = current_char;
+      escaped = 0;
+      continue;
+    }
+    if (current_char == '\\')
+    {
+      escaped = 1;
+      continue;
+    }
+
+    if (current_char == '"' && in_quote != 2)
+    {
+      in_quote = (in_quote == 1) ? 0 : 1;
+      continue;
+    }
+
+    if (current_char == '\'' && in_quote != 1)
+    {
+      in_quote = (in_quote == 2) ? 0 : 2;
+      continue;
+    }
+    if (current_char == ' ' && !in_quote)
+    {
+      if (buffer_index > 0)
       {
-        fprintf(stderr, "ERROR: Token Buffer memory allocation failed");
-        exit(EXIT_FAILURE);
+        buffer[buffer_index] = '\0';
+        tokens[position] = strdup(buffer);
+        position++;
+        buffer_index = 0;
+
+        if (position >= bufsize)
+        {
+          bufsize += TOK_BUFSIZE;
+          tokens = realloc(tokens, bufsize * sizeof(char *));
+          if (!tokens)
+          {
+            fprintf(stderr, "ERROR: Memory allocation failed\n");
+            exit(EXIT_FAILURE);
+          }
+        }
       }
     }
-    token = strtok(NULL, TOK_DELIM);
+    else
+    {
+      buffer[buffer_index++] = current_char;
+    }
   }
+
+  if (buffer_index > 0)
+  {
+    buffer[buffer_index] = '\0';
+    tokens[position] = strdup(buffer);
+    position++;
+  }
+
   tokens[position] = NULL;
+  free(buffer);
   return tokens;
 }
-
 int launch(char **args)
 {
   pid_t pid, wid;
