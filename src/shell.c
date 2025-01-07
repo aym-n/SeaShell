@@ -1,3 +1,4 @@
+#include <glob.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 int cd(char **args);
 int help(char **args);
 int exitShell(char **args);
+char **globTokens(char **tokens);
 
 char *builtin[] = {"cd", "help", "exit"};
 
@@ -18,7 +20,7 @@ int cd(char **args)
 {
   if (args[1] == NULL)
   {
-    fprintf(stderr, "USAGE: cd <name>");
+    fprintf(stderr, "USAGE: cd <name>\n");
     return 1;
   }
 
@@ -30,12 +32,11 @@ int cd(char **args)
 
 int help(char **args)
 {
-  int i;
   printf("seaSH\n");
   printf("Type program names and arguments, and hit enter.\n");
   printf("The following are built in:\n");
 
-  for (i = 0; i < num_builtin(); i++) printf("  %s\n", builtin[i]);
+  for (int i = 0; i < num_builtin(); i++) printf("  %s\n", builtin[i]);
 
   printf("Use the man command for information on other programs.\n");
   return 1;
@@ -50,13 +51,13 @@ char *readLine(void)
   int position = 0;
   char *buffer = malloc(bufsize * sizeof(char));
 
-  int c;
   if (!buffer)
   {
-    fprintf(stderr, "ERR0R: Line Buffer memory allocation failed");
+    fprintf(stderr, "ERROR: Line Buffer memory allocation failed\n");
     exit(EXIT_FAILURE);
   }
 
+  int c;
   while (1)
   {
     c = getchar();
@@ -75,7 +76,7 @@ char *readLine(void)
       buffer = realloc(buffer, bufsize);
       if (!buffer)
       {
-        fprintf(stderr, "ERR0R: Line Buffer memory allocation failed");
+        fprintf(stderr, "ERROR: Line Buffer memory allocation failed\n");
         exit(EXIT_FAILURE);
       }
     }
@@ -84,8 +85,6 @@ char *readLine(void)
 
 #define TOK_BUFSIZE 64
 #define TOK_DELIM " \t\r\n\a"
-#define LINE_BUF_SIZE 1024
-
 char **splitLine(char *line)
 {
   int bufsize = TOK_BUFSIZE;
@@ -166,6 +165,49 @@ char **splitLine(char *line)
   free(buffer);
   return tokens;
 }
+
+char **globTokens(char **tokens)
+{
+  glob_t glob_result;
+  int glob_flags = GLOB_NOCHECK | GLOB_TILDE;
+  int glob_index = 0;
+
+  char **new_tokens = malloc(TOK_BUFSIZE * sizeof(char *));
+  int new_tokens_size = TOK_BUFSIZE;
+
+  for (int i = 0; tokens[i] != NULL; i++)
+  {
+    if (strpbrk(tokens[i], "*?[") != NULL)
+    {
+      glob(tokens[i], glob_flags, NULL, &glob_result);
+
+      for (size_t j = 0; j < glob_result.gl_pathc; j++)
+      {
+        if (glob_index >= new_tokens_size)
+        {
+          new_tokens_size += TOK_BUFSIZE;
+          new_tokens = realloc(new_tokens, new_tokens_size * sizeof(char *));
+        }
+        new_tokens[glob_index++] = strdup(glob_result.gl_pathv[j]);
+      }
+
+      globfree(&glob_result);
+    }
+    else
+    {
+      if (glob_index >= new_tokens_size)
+      {
+        new_tokens_size += TOK_BUFSIZE;
+        new_tokens = realloc(new_tokens, new_tokens_size * sizeof(char *));
+      }
+      new_tokens[glob_index++] = strdup(tokens[i]);
+    }
+  }
+
+  new_tokens[glob_index] = NULL;
+  return new_tokens;
+}
+
 int launch(char **args)
 {
   pid_t pid, wid;
@@ -269,14 +311,16 @@ int execute(char **args)
     if (strcmp(args[0], builtin[i]) == 0)
       return (*builtin_func[i])(args);
 
+  char **globbed_args = globTokens(args);
+
   int num_pipes = 0;
-  for (int i = 0; args[i] != NULL; i++)
-    if (strcmp(args[i], "|") == 0)
+  for (int i = 0; globbed_args[i] != NULL; i++)
+    if (strcmp(globbed_args[i], "|") == 0)
       num_pipes++;
 
   if (num_pipes == 0)
-    return launch(args);
-  return executePipes(args, num_pipes);
+    return launch(globbed_args);
+  return executePipes(globbed_args, num_pipes);
 }
 
 void loop()
